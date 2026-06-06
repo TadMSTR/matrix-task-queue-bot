@@ -199,6 +199,7 @@ class TaskQueueBot:
 
         # Register callbacks
         self.client.add_event_callback(self._handle_message, RoomMessageText)
+        self.client.add_event_callback(self._handle_custom_event, Event)
 
         # Start file watcher
         Path(TASK_QUEUE_DIR).mkdir(parents=True, exist_ok=True)
