@@ -136,8 +136,8 @@ async def _start_task(
         html = f"Session launched for <strong>{target_agent}</strong> ({mode_label} mode) — task <code>{task_id[:8]}</code>"
         return plain, html
     else:
-        error = result.get("error", "unknown error")
-        return f"Failed to launch: {error}", f"Failed to launch: {error}"
+        logger.error("Failed to launch session for task %s", task_id[:8])
+        return "Failed to launch session — check bot logs.", "Failed to launch session — check bot logs."
 
 
 async def _approve_task(
@@ -150,5 +150,6 @@ async def _approve_task(
             f"Task {task_id[:8]} approved.",
             f"Task <code>{task_id[:8]}</code> approved.",
         )
-    except Exception as e:
-        return f"Failed to approve: {e}", f"Failed to approve: {e}"
+    except Exception:
+        logger.exception("Failed to approve task %s", task_id[:8])
+        return "Failed to approve — check bot logs.", "Failed to approve — check bot logs."

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 import yaml
+
+_VALID_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +45,8 @@ class TaskQueueClient:
         return tasks[:limit]
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
-        # Support full UUID or short prefix (8+ chars)
+        if not _VALID_ID.match(task_id):
+            return {}
         for f in self._dir.glob("*.yml"):
             try:
                 data = yaml.safe_load(f.read_text())
@@ -57,6 +61,8 @@ class TaskQueueClient:
     async def update_task(
         self, task_id: str, status: str, actor: str, note: str = ""
     ) -> dict[str, Any]:
+        if not _VALID_ID.match(task_id):
+            return {}
         for f in self._dir.glob("*.yml"):
             try:
                 data = yaml.safe_load(f.read_text())
@@ -74,7 +80,9 @@ class TaskQueueClient:
                         "actor": actor,
                         "note": note,
                     })
-                    f.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+                    tmp = f.with_suffix(".tmp")
+                    tmp.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+                    tmp.rename(f)
                     return data
             except Exception:
                 logger.warning("Failed to update %s", f)

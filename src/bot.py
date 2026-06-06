@@ -155,8 +155,8 @@ class TaskQueueBot:
             logger.exception("Command handler error: %s", e)
             await self._send_html(
                 room.room_id,
-                f"Error: {e}",
-                f"<strong>Error:</strong> {e}",
+                "Error: an internal error occurred. Check bot logs for details.",
+                "<strong>Error:</strong> an internal error occurred. Check bot logs for details.",
             )
 
     async def _handle_custom_event(self, room: MatrixRoom, event: Event) -> None:
