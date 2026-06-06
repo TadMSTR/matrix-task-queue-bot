@@ -9,11 +9,16 @@ def _esc(s: str) -> str:
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def _ago(iso: str) -> str:
+def _ago(ts: Any) -> str:
     from datetime import datetime, timezone
 
     try:
-        dt = datetime.fromisoformat(iso)
+        if isinstance(ts, datetime):
+            dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+        elif isinstance(ts, str):
+            dt = datetime.fromisoformat(ts)
+        else:
+            return str(ts)
         delta = datetime.now(timezone.utc) - dt
         secs = int(delta.total_seconds())
         if secs < 60:
@@ -27,7 +32,7 @@ def _ago(iso: str) -> str:
         days = hours // 24
         return f"{days}d ago"
     except (ValueError, TypeError):
-        return iso
+        return str(ts)
 
 
 def _status_emoji(status: str) -> str:

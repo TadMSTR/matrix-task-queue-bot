@@ -119,7 +119,7 @@ class TaskQueueBot:
         self.client = AsyncClient(HOMESERVER, BOT_USER_ID)
         self.client.access_token = ACCESS_TOKEN
         self.client.user_id = BOT_USER_ID
-        self.task_client = TaskQueueClient(MCP_URL)
+        self.task_client = TaskQueueClient(TASK_QUEUE_DIR)
         self._observer: Observer | None = None
 
     async def _send_html(self, room_id: str, plain: str, html: str) -> None:

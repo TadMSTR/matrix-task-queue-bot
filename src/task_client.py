@@ -1,42 +1,31 @@
-"""HTTP client for task-queue-mcp (FastMCP JSON-RPC)."""
+"""Task queue client — reads YAML files directly from the task queue directory."""
 
 from __future__ import annotations
 
-import json
 import logging
-from itertools import count
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-import httpx
+import yaml
 
 logger = logging.getLogger(__name__)
 
-_rpc_counter = count(1)
-
 
 class TaskQueueClient:
-    def __init__(self, mcp_url: str) -> None:
-        self._url = mcp_url
-        self._http = httpx.AsyncClient(timeout=15.0)
+    def __init__(self, task_dir: str) -> None:
+        self._dir = Path(task_dir)
 
-    async def _call(self, method: str, params: dict[str, Any] | None = None) -> Any:
-        rpc_id = next(_rpc_counter)
-        body = {
-            "jsonrpc": "2.0",
-            "id": rpc_id,
-            "method": "tools/call",
-            "params": {"name": method, "arguments": params or {}},
-        }
-        resp = await self._http.post(self._url, json=body)
-        resp.raise_for_status()
-        data = resp.json()
-        if "error" in data and data["error"]:
-            raise RuntimeError(data["error"].get("message", str(data["error"])))
-        text = data.get("result", {}).get("content", [{}])[0].get("text", "")
-        try:
-            return json.loads(text)
-        except (json.JSONDecodeError, TypeError):
-            return text
+    def _load_all(self) -> list[dict[str, Any]]:
+        tasks = []
+        for f in self._dir.glob("*.yml"):
+            try:
+                data = yaml.safe_load(f.read_text())
+                if isinstance(data, dict) and "id" in data:
+                    tasks.append(data)
+            except Exception:
+                logger.warning("Failed to parse %s", f)
+        return tasks
 
     async def list_tasks(
         self,
@@ -44,26 +33,52 @@ class TaskQueueClient:
         status: str | None = None,
         limit: int = 50,
     ) -> list[dict[str, Any]]:
-        params: dict[str, Any] = {"limit": limit}
+        tasks = self._load_all()
         if target_agent:
-            params["target_agent"] = target_agent
+            tasks = [t for t in tasks if t.get("target_agent") == target_agent]
         if status:
-            params["status"] = status
-        result = await self._call("list_tasks", params)
-        return result if isinstance(result, list) else []
+            tasks = [t for t in tasks if t.get("status") == status]
+        tasks.sort(key=lambda t: str(t.get("created", "")), reverse=True)
+        return tasks[:limit]
 
     async def get_task(self, task_id: str) -> dict[str, Any]:
-        result = await self._call("get_task", {"task_id": task_id})
-        return result if isinstance(result, dict) else {}
+        # Support full UUID or short prefix (8+ chars)
+        for f in self._dir.glob("*.yml"):
+            try:
+                data = yaml.safe_load(f.read_text())
+                if isinstance(data, dict):
+                    fid = str(data.get("id", ""))
+                    if fid == task_id or (len(task_id) >= 8 and fid.startswith(task_id)):
+                        return data
+            except Exception:
+                continue
+        return {}
 
     async def update_task(
         self, task_id: str, status: str, actor: str, note: str = ""
     ) -> dict[str, Any]:
-        result = await self._call(
-            "update_task",
-            {"task_id": task_id, "status": status, "actor": actor, "note": note},
-        )
-        return result if isinstance(result, dict) else {}
+        for f in self._dir.glob("*.yml"):
+            try:
+                data = yaml.safe_load(f.read_text())
+                if not isinstance(data, dict):
+                    continue
+                fid = str(data.get("id", ""))
+                if fid == task_id or (len(task_id) >= 8 and fid.startswith(task_id)):
+                    data["status"] = status
+                    now = datetime.now(timezone.utc).isoformat()
+                    if "history" not in data or not isinstance(data["history"], list):
+                        data["history"] = []
+                    data["history"].append({
+                        "timestamp": now,
+                        "status": status,
+                        "actor": actor,
+                        "note": note,
+                    })
+                    f.write_text(yaml.dump(data, default_flow_style=False, sort_keys=False))
+                    return data
+            except Exception:
+                logger.warning("Failed to update %s", f)
+        return {}
 
     async def close(self) -> None:
-        await self._http.aclose()
+        pass
