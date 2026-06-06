@@ -80,7 +80,7 @@ async def handle_widget_event(
         logger.exception("Widget event handler error: %s", e)
         await _send_response(client, room_id, EVENT_TASK_RESPONSE, {
             "request_id": request_id,
-            "error": str(e),
+            "error": "internal error processing request",
         })
 
 
