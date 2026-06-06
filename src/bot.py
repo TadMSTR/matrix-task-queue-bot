@@ -45,6 +45,9 @@ BOT_USER_ID = os.environ.get("MATRIX_BOT_USER_ID", "@forge-task-queue:helmforge.
 ROOM_ID = os.environ["MATRIX_ROOM_TASK_QUEUE"]
 MCP_URL = os.environ.get("TASK_QUEUE_MCP_URL", "http://localhost:8485/mcp")
 TASK_QUEUE_DIR = os.environ.get("TASK_QUEUE_DIR", os.path.expanduser("~/.claude/task-queue"))
+AUTHORIZED_SENDERS = set(
+    s.strip() for s in os.environ.get("AUTHORIZED_MXIDS", "@ted:helmforge.me").split(",") if s.strip()
+)
 
 # ── Task file watcher ──────────────────────────────────────────────────
 
@@ -165,6 +168,12 @@ class TaskQueueBot:
 
         event_type = getattr(event, "type", "") or ""
         content = getattr(event, "source", {}).get("content", {})
+
+        # Mutating actions require authorized sender; read-only queries are open to room members
+        if event_type in (EVENT_TASK_START, EVENT_TASK_APPROVE):
+            if event.sender not in AUTHORIZED_SENDERS:
+                logger.warning("Unauthorized widget action from %s: %s", event.sender, event_type)
+                return
 
         if event_type in (EVENT_TASK_LIST, EVENT_TASK_DETAIL, EVENT_TASK_START, EVENT_TASK_APPROVE):
             await handle_widget_event(
