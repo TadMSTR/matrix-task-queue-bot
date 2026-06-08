@@ -169,6 +169,9 @@ def format_status_update(task: dict[str, Any], old_status: str) -> tuple[str, st
     workflow_mode = task.get("workflow_mode", "semi-auto")
     se = _status_emoji(new_status)
 
+    # SECURITY[accepted]: mode_tag uses raw workflow_mode in plain text. Mitigated: value is validated
+    # against {"semi-auto", "auto"} at submission time by task-queue-mcp. Manual YAML edits require
+    # filesystem access (accepted risk for internal tooling). Audit: 2026-06-08/workflow-qol-2026-06 INFO-2.
     mode_tag = f" [{workflow_mode}]" if new_status == "approved" else ""
     plain = f"Task {short_id} ({target}): {old_status} → {new_status}{mode_tag} — {summary}"
     html = (
