@@ -166,11 +166,20 @@ def format_status_update(task: dict[str, Any], old_status: str) -> tuple[str, st
     new_status = task.get("status", "?")
     summary = task.get("summary", "")[:60]
     target = task.get("target_agent", "?")
+    workflow_mode = task.get("workflow_mode", "semi-auto")
     se = _status_emoji(new_status)
 
-    plain = f"Task {short_id} ({target}): {old_status} → {new_status} — {summary}"
+    mode_tag = f" [{workflow_mode}]" if new_status == "approved" else ""
+    plain = f"Task {short_id} ({target}): {old_status} → {new_status}{mode_tag} — {summary}"
     html = (
         f"{se} Task <code>{_esc(short_id)}</code> assigned to <strong>{_esc(target)}</strong> "
-        f"moved to <strong>{_esc(new_status)}</strong> — {_esc(summary)}"
+        f"moved to <strong>{_esc(new_status)}</strong>"
     )
+    if new_status == "approved" and workflow_mode == "semi-auto":
+        html += (
+            f" <em>[semi-auto — awaiting operator pickup]</em> — {_esc(summary)}"
+            f"<br/>Resume: check #{_esc(target)} room for task details."
+        )
+    else:
+        html += f" — {_esc(summary)}"
     return plain, html
