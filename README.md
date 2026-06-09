@@ -45,6 +45,13 @@ Responses are sent as custom room events (`com.helmforge.task.response` / `com.h
 
 The file watcher (watchdog, non-recursive, 1s debounce per file) monitors `~/.claude/task-queue/` for YAML file creation and modification. When a task's `status` field changes, the bot posts a formatted notification to the room.
 
+When a task transitions to `approved`, the notification includes a workflow mode tag:
+
+- **`[semi-auto]`** — task awaits operator pickup; notification includes resume instructions pointing to the target agent's room
+- **`[auto]`** — dispatcher will auto-launch the target agent headlessly
+
+The `workflow_mode` value is read from the task YAML (default: `semi-auto`, validated at submission time by task-queue-mcp).
+
 Only actual status transitions are notified — the watcher seeds its known-status map at startup to avoid spurious notifications on restart.
 
 ## Environment variables
