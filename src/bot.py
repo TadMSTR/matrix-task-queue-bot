@@ -45,6 +45,9 @@ BOT_USER_ID = os.environ.get("MATRIX_BOT_USER_ID", "@forge-task-queue:helmforge.
 ROOM_ID = os.environ["MATRIX_ROOM_TASK_QUEUE"]
 MCP_URL = os.environ.get("TASK_QUEUE_MCP_URL", "http://localhost:8485/mcp")
 TASK_QUEUE_DIR = os.environ.get("TASK_QUEUE_DIR", os.path.expanduser("~/.claude/task-queue"))
+# Mutations route through the MCP control API (shared-secret gated). Reads stay direct.
+TASK_QUEUE_API = os.environ.get("TASK_QUEUE_API", "http://127.0.0.1:8485")
+TASK_QUEUE_API_SECRET = os.environ.get("TASK_QUEUE_API_SECRET", "")
 AUTHORIZED_SENDERS = set(
     s.strip() for s in os.environ.get("AUTHORIZED_MXIDS", "@ted:helmforge.me").split(",") if s.strip()
 )
@@ -119,7 +122,11 @@ class TaskQueueBot:
         self.client = AsyncClient(HOMESERVER, BOT_USER_ID)
         self.client.access_token = ACCESS_TOKEN
         self.client.user_id = BOT_USER_ID
-        self.task_client = TaskQueueClient(TASK_QUEUE_DIR)
+        self.task_client = TaskQueueClient(
+            TASK_QUEUE_DIR,
+            api_base=TASK_QUEUE_API,
+            api_secret=TASK_QUEUE_API_SECRET,
+        )
         self._observer: Observer | None = None
 
     async def _send_html(self, room_id: str, plain: str, html: str) -> None:

@@ -69,11 +69,11 @@ async def handle_widget_event(
 
         elif event_type == EVENT_TASK_APPROVE:
             task_id = content.get("task_id", "")
-            await task_client.update_task(task_id, "approved", "operator", "Approved via widget")
+            result = await task_client.update_task(task_id, "approved", "operator", "Approved via widget")
             await _send_response(client, room_id, EVENT_TASK_RESPONSE, {
                 "request_id": request_id,
                 "action": "approve",
-                "ok": True,
+                "ok": bool(result.get("ok")),
             })
 
     except Exception as e:

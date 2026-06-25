@@ -143,12 +143,18 @@ async def _start_task(
 async def _approve_task(
     task_id: str, client: TaskQueueClient
 ) -> tuple[str, str]:
-    """Approve a pending task."""
+    """Approve a pending task via the MCP control API."""
     try:
-        await client.update_task(task_id, "approved", "operator", "Approved via Matrix bot")
+        result = await client.update_task(task_id, "approved", "operator", "Approved via Matrix bot")
+        if result.get("ok"):
+            return (
+                f"Task {task_id[:8]} approved.",
+                f"Task <code>{task_id[:8]}</code> approved.",
+            )
+        # Control API rejected (e.g. invalid transition) or was unreachable.
         return (
-            f"Task {task_id[:8]} approved.",
-            f"Task <code>{task_id[:8]}</code> approved.",
+            "Failed to approve — the task may not be approvable, or the control API is unreachable. Check bot logs.",
+            "Failed to approve — the task may not be approvable, or the control API is unreachable. Check bot logs.",
         )
     except Exception:
         logger.exception("Failed to approve task %s", task_id[:8])
