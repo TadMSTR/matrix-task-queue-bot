@@ -186,3 +186,141 @@ def format_status_update(task: dict[str, Any], old_status: str) -> tuple[str, st
     else:
         html += f" — {_esc(summary)}"
     return plain, html
+
+
+# ── Live per-agent status boards ───────────────────────────────────────
+
+# Statuses that keep a task off the boards entirely.
+BOARD_TERMINAL = {"completed", "failed", "cancelled"}
+
+_PRIORITY_RANK = {"urgent": 0, "high": 1, "normal": 2, "low": 3}
+_STATUS_RANK = {"in-progress": 0, "approved": 1, "pending-approval": 2, "submitted": 3}
+
+
+def _priority_of(task: dict[str, Any]) -> str:
+    return task.get("payload", {}).get("priority", "normal") or "normal"
+
+
+def board_tasks(agent: str, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One agent's non-terminal tasks, sorted priority → status → age (oldest first)."""
+    rows = [
+        t
+        for t in tasks
+        if t.get("target_agent") == agent and t.get("status") not in BOARD_TERMINAL
+    ]
+    rows.sort(
+        key=lambda t: (
+            _PRIORITY_RANK.get(_priority_of(t), 2),
+            _STATUS_RANK.get(t.get("status", ""), 9),
+            str(t.get("created", "")),
+        )
+    )
+    return rows
+
+
+def board_signature(agent: str, tasks: list[dict[str, Any]]) -> str:
+    """Volatile-free fingerprint of a board (excludes age / render time) for no-op edit skipping."""
+    parts = [
+        "|".join(
+            (
+                str(t.get("id", "")),
+                str(t.get("status", "")),
+                str(_priority_of(t)),
+                str(t.get("task_type", "")),
+                str(t.get("summary", "")),
+            )
+        )
+        for t in tasks
+    ]
+    return f"{agent}::" + ";;".join(parts)
+
+
+def _now_hhmm() -> str:
+    from datetime import datetime
+
+    return datetime.now().strftime("%H:%M")
+
+
+def _board_rows_html(tasks: list[dict[str, Any]]) -> str:
+    rows = []
+    for t in tasks:
+        short_id = str(t.get("id", ""))[:8]
+        status = t.get("status", "?")
+        priority = _priority_of(t)
+        task_type = t.get("task_type", "?")
+        summary = t.get("summary", "")[:60]
+        pm = _priority_marker(priority)
+        se = _status_emoji(status)
+        age = _ago(t.get("created", ""))
+        rows.append(
+            f"<tr><td><code>{_esc(short_id)}</code></td>"
+            f"<td>{pm} {_esc(priority)}</td>"
+            f"<td>{se} {_esc(status)}</td>"
+            f"<td>{_esc(task_type)}</td>"
+            f"<td>{_esc(summary)}</td>"
+            f"<td>{_esc(age)}</td></tr>"
+        )
+    return "".join(rows)
+
+
+def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, str]:
+    """Return (plain, html) for one agent's live board.
+
+    ``tasks`` must already be filtered + sorted board rows (see ``board_tasks``).
+    The ``updated HH:MM`` footer is a wall-clock stamp, not a relative age: an
+    edited board does not re-render until the next real change, so a frozen
+    "updated 14:32" honestly reports when the board last changed.
+    """
+    n = len(tasks)
+    label = agent.upper()
+    updated = _now_hhmm()
+
+    if not tasks:
+        plain = f"{label} ({n}) — no open tasks (updated {updated})"
+        html = (
+            f"<strong>{_esc(label)} ({n})</strong> — ✔️ no open tasks"
+            f"<br/><em>updated {updated}</em>"
+        )
+        return plain, html
+
+    plain_lines = [f"{label} ({n})"]
+    for t in tasks:
+        plain_lines.append(
+            f"  {str(t.get('id', ''))[:8]} | {_priority_of(t):6s} | {t.get('status', '?'):15s} "
+            f"| {t.get('task_type', '?'):10s} | {t.get('summary', '')[:60]} | {_ago(t.get('created', ''))}"
+        )
+    plain_lines.append(f"  updated {updated}")
+    plain = "\n".join(plain_lines)
+
+    html = (
+        f"<strong>{_esc(label)} ({n})</strong>"
+        "<table><thead><tr>"
+        "<th>ID</th><th>Priority</th><th>Status</th><th>Type</th><th>Summary</th><th>Age</th>"
+        "</tr></thead><tbody>"
+        + _board_rows_html(tasks)
+        + "</tbody></table>"
+        f"<em>updated {updated}</em>"
+    )
+    return plain, html
+
+
+def format_digest(
+    agent_tasks: list[tuple[str, list[dict[str, Any]]]], date_str: str
+) -> tuple[str, str]:
+    """Return (plain, html) for the daily morning brief — open boards stacked.
+
+    ``agent_tasks`` is an ordered list of (agent, board_rows); callers should pass
+    only agents that have open tasks.
+    """
+    total = sum(len(t) for _, t in agent_tasks)
+    n_agents = len(agent_tasks)
+    header = f"Morning brief — {date_str} · {total} non-completed across {n_agents} agents"
+
+    plain_parts = [header, ""]
+    html_parts = [f"<strong>\U0001f304 {_esc(header)}</strong>"]
+    for agent, tasks in agent_tasks:
+        p, h = format_agent_board(agent, tasks)
+        plain_parts.append(p)
+        plain_parts.append("")
+        html_parts.append("<br/>" + h)
+    return "\n".join(plain_parts).rstrip(), "".join(html_parts)
