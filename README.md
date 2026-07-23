@@ -1,16 +1,19 @@
 # matrix-task-queue-bot
 
-Matrix bot for task queue management on forge. Accepts text commands in a designated Matrix room, handles custom widget events from the task queue dashboard widget, and posts notifications when task status changes.
+Matrix bot for task queue management on forge. Accepts text commands in a designated Matrix room, handles custom widget events from the task queue dashboard widget, and keeps a set of pinned, self-updating status boards — one per agent — plus a single daily morning brief.
 
 ## Overview
 
 The bot runs as a PM2 always-on service (`matrix-task-queue-bot`) using the `matrix-nio` Python client. It reads task YAML files directly from `~/.claude/task-queue/` — no HTTP dependency on task-queue-mcp for queries.
 
-Three subsystems run concurrently:
+Four subsystems run concurrently:
 
 - **Text command handler** — responds to `!` commands in the task queue room
 - **Widget event handler** — processes custom `com.helmforge.task.*` room events from the Matrix widget
-- **File watcher** (watchdog) — monitors `~/.claude/task-queue/*.yml` for status changes and posts notifications to the room
+- **File watcher** (watchdog) — monitors `~/.claude/task-queue/*.yml` and, on any change, coalesces a single refresh of the live boards
+- **Daily digest scheduler** — posts one dated "morning brief" per day at `DIGEST_HOUR` (local time)
+
+The Task Queue room is a **passive status surface**: the boards edit in place silently (via `m.replace`) and do not notify. The only notifying message is the once-a-day morning brief.
 
 ## Text commands
 
@@ -41,18 +44,24 @@ The bot handles custom Matrix room events sent by the task queue widget (`matrix
 
 Responses are sent as custom room events (`com.helmforge.task.response` / `com.helmforge.task.data`). The widget correlates responses via `request_id` in the event content.
 
-## Status notifications
+## Live status boards
 
-The file watcher (watchdog, non-recursive, 1s debounce per file) monitors `~/.claude/task-queue/` for YAML file creation and modification. When a task's `status` field changes, the bot posts a formatted notification to the room.
+The file watcher (watchdog, non-recursive) monitors `~/.claude/task-queue/` for any change — creation, modification, deletion, or move (archival). All events are collapsed by a single coalesce timer (`BOARD_COALESCE_SEC`, default 2s) into one refresh pass.
 
-When a task transitions to `approved`, the notification includes a workflow mode tag:
+Each refresh rebuilds one board **per agent** in `BOARD_AGENTS` (plus any other agent seen in the queue, appended lazily) from a fresh directory scan:
 
-- **`[semi-auto]`** — task awaits operator pickup; notification includes resume instructions pointing to the target agent's room
-- **`[auto]`** — dispatcher will auto-launch the target agent headlessly
+- Each board lists that agent's **non-terminal** tasks (`submitted`, `approved`, `pending-approval`, `in-progress`; `completed` / `failed` / `cancelled` are excluded), sorted by priority → status → age.
+- Columns: **ID · Priority · Status · Type · Summary · Age**. Header shows `AGENT (n)`; an agent with no open tasks shows `AGENT (0) — ✔️ no open tasks`.
+- The board message is **edited in place** via an `m.replace` relation, so updates are silent (no notification) and the message keeps a stable event ID. Boards whose meaningful content is unchanged are skipped to avoid churn (the `updated HH:MM` footer is a wall-clock stamp of the last real change, not a live clock).
+- All boards are pinned in one `m.room.pinned_events` state event so they read top-to-bottom in `BOARD_AGENTS` order. Pinning requires the bot to hold a state-event power level (PL 50) in the room; if it can't, pinning degrades to a logged no-op and the boards still work unpinned.
 
-The `workflow_mode` value is read from the task YAML (default: `semi-auto`, validated at submission time by task-queue-mcp).
+Board message event IDs are persisted to `${STATE_DIR}/boards.json` (an `agent → event_id` map) so the bot re-edits the same messages across restarts. Delete `boards.json` to force a clean re-post.
 
-Only actual status transitions are notified — the watcher seeds its known-status map at startup to avoid spurious notifications on restart.
+## Daily morning brief
+
+Once a day at `DIGEST_HOUR` (local time, default 05:00) the bot posts a **fresh** message (not an edit) — the one message in the room that notifies. It is a dated digest of all non-completed tasks grouped by agent (`Morning brief — YYYY-MM-DD · N non-completed across M agents`).
+
+A stamp file `${STATE_DIR}/digest-stamp` records the last-sent date to guard against a double-send on restart. On startup the scheduler arms for the next occurrence of `DIGEST_HOUR`; it does not send a catch-up brief for a hour already passed.
 
 ## Environment variables
 
@@ -65,6 +74,11 @@ Only actual status transitions are notified — the watcher seeds its known-stat
 | `TASK_QUEUE_MCP_URL` | No | `http://localhost:8485/mcp` | Unused at runtime (reads files directly) |
 | `TASK_QUEUE_DIR` | No | `~/.claude/task-queue` | Task YAML directory |
 | `AUTHORIZED_MXIDS` | No | `@ted:helmforge.me` | Comma-separated MXIDs allowed to run mutating commands |
+| `STATE_DIR` | No | `~/.local/state/matrix-task-queue-bot` | Holds `boards.json` (agent→event_id) and `digest-stamp` |
+| `DIGEST_HOUR` | No | `5` | Local-time hour (0–23) for the daily morning brief |
+| `BOARD_COALESCE_SEC` | No | `2` | Debounce window collapsing a burst of queue writes into one board refresh |
+| `BOARD_AGENTS` | No | `developer,sysadmin,research,writer,security` | Ordered set of agents to always keep a (possibly empty) board for |
+| `MAX_BOARD_AGENTS` | No | `25` | Hard cap on total boards; extra agents beyond it are logged and dropped (floored to `BOARD_AGENTS` size) |
 | `ENV_FILE` | No | `~/.secrets/matrix-task-queue-bot.env` | Path to dotenv file |
 
 ## Installation
