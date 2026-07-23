@@ -222,8 +222,13 @@ class TaskQueueBot:
             return ""
 
     def _write_digest_stamp(self, day: str) -> None:
+        # Atomic: a torn/empty write here would read back as "" and defeat the
+        # same-day double-send guard, so write to .tmp and rename into place.
+        tmp = f"{self._digest_stamp}.tmp"
         try:
-            Path(self._digest_stamp).write_text(day)
+            with open(tmp, "w") as f:
+                f.write(day)
+            os.replace(tmp, self._digest_stamp)
         except OSError as e:
             logger.warning("Failed to write digest stamp: %s", e)
 
