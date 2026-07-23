@@ -86,6 +86,14 @@ BOARD_AGENTS = [
     ).split(",")
     if a.strip()
 ]
+# Hard cap on total agent boards. Guards against a malformed/typo'd target_agent in the
+# queue growing the pinned-events array past Synapse's state-event size limit (audit LOW).
+try:
+    MAX_BOARD_AGENTS = int(os.environ.get("MAX_BOARD_AGENTS", "25"))
+except ValueError:
+    MAX_BOARD_AGENTS = 25
+if MAX_BOARD_AGENTS < len(BOARD_AGENTS):
+    MAX_BOARD_AGENTS = len(BOARD_AGENTS)
 
 # ── Task file watcher ──────────────────────────────────────────────────
 
@@ -110,7 +118,15 @@ class TaskFileHandler(FileSystemEventHandler):
 
     def _fire(self) -> None:  # event-loop thread
         self._timer = None
-        asyncio.ensure_future(self._refresh_coro())
+        asyncio.ensure_future(self._safe_refresh())
+
+    async def _safe_refresh(self) -> None:
+        # Parity with the startup path: a raising refresh must be logged, not lost to
+        # asyncio's default "Task exception was never retrieved" (audit INFO).
+        try:
+            await self._refresh_coro()
+        except Exception:  # noqa: BLE001
+            logger.exception("Watcher-triggered board refresh failed")
 
     def _maybe(self, path: str) -> None:
         p = str(path or "")
@@ -250,6 +266,15 @@ class TaskQueueBot:
         for agent in self._board_events:
             if agent not in ordered and agent not in extra:
                 extra.append(agent)
+        # Cap total boards — a malformed target_agent must not grow the pinned set unboundedly.
+        max_extra = max(0, MAX_BOARD_AGENTS - len(ordered))
+        if len(extra) > max_extra:
+            dropped = extra[max_extra:]
+            logger.warning(
+                "Board cap %d reached; dropping %d extra agent board(s): %s",
+                MAX_BOARD_AGENTS, len(dropped), dropped,
+            )
+            extra = extra[:max_extra]
         return ordered + extra
 
     async def _refresh_boards(self) -> None:

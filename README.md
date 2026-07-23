@@ -78,6 +78,7 @@ A stamp file `${STATE_DIR}/digest-stamp` records the last-sent date to guard aga
 | `DIGEST_HOUR` | No | `5` | Local-time hour (0–23) for the daily morning brief |
 | `BOARD_COALESCE_SEC` | No | `2` | Debounce window collapsing a burst of queue writes into one board refresh |
 | `BOARD_AGENTS` | No | `developer,sysadmin,research,writer,security` | Ordered set of agents to always keep a (possibly empty) board for |
+| `MAX_BOARD_AGENTS` | No | `25` | Hard cap on total boards; extra agents beyond it are logged and dropped (floored to `BOARD_AGENTS` size) |
 | `ENV_FILE` | No | `~/.secrets/matrix-task-queue-bot.env` | Path to dotenv file |
 
 ## Installation
