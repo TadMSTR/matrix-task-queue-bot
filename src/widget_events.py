@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-from nio import AsyncClient, RoomMemberEvent
+from nio import AsyncClient
 
-from .task_client import TaskQueueClient
-from .formatter import format_task_table, format_task_detail
 from .session import launch_headless
+from .task_client import TaskQueueClient
 
 logger = logging.getLogger(__name__)
 
@@ -41,19 +39,29 @@ async def handle_widget_event(
                 status=filters.get("status"),
             )
             active = [t for t in tasks if t.get("status") not in ("completed", "failed")]
-            await _send_response(client, room_id, EVENT_TASK_DATA, {
-                "request_id": request_id,
-                "tasks": active,
-            })
+            await _send_response(
+                client,
+                room_id,
+                EVENT_TASK_DATA,
+                {
+                    "request_id": request_id,
+                    "tasks": active,
+                },
+            )
 
         elif event_type == EVENT_TASK_DETAIL:
             task_id = content.get("task_id", "")
             task = await task_client.get_task(task_id)
-            await _send_response(client, room_id, EVENT_TASK_RESPONSE, {
-                "request_id": request_id,
-                "action": "detail",
-                "task": task,
-            })
+            await _send_response(
+                client,
+                room_id,
+                EVENT_TASK_RESPONSE,
+                {
+                    "request_id": request_id,
+                    "action": "detail",
+                    "task": task,
+                },
+            )
 
         elif event_type == EVENT_TASK_START:
             task_id = content.get("task_id", "")
@@ -61,27 +69,44 @@ async def handle_widget_event(
             task = await task_client.get_task(task_id)
             target_agent = task.get("target_agent", "")
             result = launch_headless(task_id, target_agent, mode)
-            await _send_response(client, room_id, EVENT_TASK_RESPONSE, {
-                "request_id": request_id,
-                "action": "start",
-                "result": result,
-            })
+            await _send_response(
+                client,
+                room_id,
+                EVENT_TASK_RESPONSE,
+                {
+                    "request_id": request_id,
+                    "action": "start",
+                    "result": result,
+                },
+            )
 
         elif event_type == EVENT_TASK_APPROVE:
             task_id = content.get("task_id", "")
-            result = await task_client.update_task(task_id, "approved", "operator", "Approved via widget")
-            await _send_response(client, room_id, EVENT_TASK_RESPONSE, {
-                "request_id": request_id,
-                "action": "approve",
-                "ok": bool(result.get("ok")),
-            })
+            result = await task_client.update_task(
+                task_id, "approved", "operator", "Approved via widget"
+            )
+            await _send_response(
+                client,
+                room_id,
+                EVENT_TASK_RESPONSE,
+                {
+                    "request_id": request_id,
+                    "action": "approve",
+                    "ok": bool(result.get("ok")),
+                },
+            )
 
     except Exception as e:
         logger.exception("Widget event handler error: %s", e)
-        await _send_response(client, room_id, EVENT_TASK_RESPONSE, {
-            "request_id": request_id,
-            "error": "internal error processing request",
-        })
+        await _send_response(
+            client,
+            room_id,
+            EVENT_TASK_RESPONSE,
+            {
+                "request_id": request_id,
+                "error": "internal error processing request",
+            },
+        )
 
 
 async def _send_response(

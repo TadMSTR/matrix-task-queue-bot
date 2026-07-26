@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
-from typing import Any
 
-from .task_client import TaskQueueClient
-from .formatter import format_task_table, format_task_detail
+from .formatter import format_task_detail, format_task_table
 from .session import launch_headless
+from .task_client import TaskQueueClient
 
 logger = logging.getLogger(__name__)
 
@@ -24,9 +23,7 @@ HELP_HTML = HELP_TEXT.replace("\n", "<br/>").replace("!", "<code>!")
 HELP_HTML = HELP_HTML.replace("</code>", "</code>", 1)  # fix first
 # Actually just do it cleanly:
 HELP_HTML = "<br/>".join(
-    f"<code>{line.split(' — ')[0]}</code> — {line.split(' — ')[1]}"
-    if " — " in line
-    else line
+    f"<code>{line.split(' — ')[0]}</code> — {line.split(' — ')[1]}" if " — " in line else line
     for line in HELP_TEXT.strip().split("\n")
 )
 
@@ -55,9 +52,7 @@ async def handle_command(
     return None
 
 
-async def _cmd_queue(
-    args: list[str], client: TaskQueueClient
-) -> tuple[str, str]:
+async def _cmd_queue(args: list[str], client: TaskQueueClient) -> tuple[str, str]:
     """!queue [agent] — list non-terminal tasks."""
     agent = args[0] if args else None
 
@@ -67,13 +62,14 @@ async def _cmd_queue(
     return format_task_table(active)
 
 
-async def _cmd_task(
-    args: list[str], client: TaskQueueClient
-) -> tuple[str, str]:
+async def _cmd_task(args: list[str], client: TaskQueueClient) -> tuple[str, str]:
     """!task <subcommand> <id>"""
     if not args:
-        return "Usage: !task <id> | !task start <id> | !task run <id> | !task approve <id>", \
-               "Usage: <code>!task &lt;id&gt;</code> | <code>!task start &lt;id&gt;</code> | <code>!task run &lt;id&gt;</code> | <code>!task approve &lt;id&gt;</code>"
+        return (
+            "Usage: !task <id> | !task start <id> | !task run <id> | !task approve <id>",
+            "Usage: <code>!task &lt;id&gt;</code> | <code>!task start &lt;id&gt;</code> "
+            "| <code>!task run &lt;id&gt;</code> | <code>!task approve &lt;id&gt;</code>",
+        )
 
     subcmd = args[0].lower()
 
@@ -118,9 +114,7 @@ def _resolve_id(short_or_full: str, client: TaskQueueClient) -> str | None:
     return cleaned if len(cleaned) >= 8 else None
 
 
-async def _start_task(
-    task_id: str, mode: str, client: TaskQueueClient
-) -> tuple[str, str]:
+async def _start_task(task_id: str, mode: str, client: TaskQueueClient) -> tuple[str, str]:
     """Launch an agent session for a task."""
     # Get task to find target agent
     task = await client.get_task(task_id)
@@ -133,19 +127,25 @@ async def _start_task(
     if result.get("ok") == "true":
         mode_label = "review" if mode == "review" else "auto"
         plain = f"Session launched for {target_agent} ({mode_label} mode) — task {task_id[:8]}"
-        html = f"Session launched for <strong>{target_agent}</strong> ({mode_label} mode) — task <code>{task_id[:8]}</code>"
+        html = (
+            f"Session launched for <strong>{target_agent}</strong> "
+            f"({mode_label} mode) — task <code>{task_id[:8]}</code>"
+        )
         return plain, html
     else:
         logger.error("Failed to launch session for task %s", task_id[:8])
-        return "Failed to launch session — check bot logs.", "Failed to launch session — check bot logs."
+        return (
+            "Failed to launch session — check bot logs.",
+            "Failed to launch session — check bot logs.",
+        )
 
 
-async def _approve_task(
-    task_id: str, client: TaskQueueClient
-) -> tuple[str, str]:
+async def _approve_task(task_id: str, client: TaskQueueClient) -> tuple[str, str]:
     """Approve a pending task via the MCP control API."""
     try:
-        result = await client.update_task(task_id, "approved", "operator", "Approved via Matrix bot")
+        result = await client.update_task(
+            task_id, "approved", "operator", "Approved via Matrix bot"
+        )
         if result.get("ok"):
             return (
                 f"Task {task_id[:8]} approved.",
@@ -153,8 +153,10 @@ async def _approve_task(
             )
         # Control API rejected (e.g. invalid transition) or was unreachable.
         return (
-            "Failed to approve — the task may not be approvable, or the control API is unreachable. Check bot logs.",
-            "Failed to approve — the task may not be approvable, or the control API is unreachable. Check bot logs.",
+            "Failed to approve — the task may not be approvable, or the control API is "
+            "unreachable. Check bot logs.",
+            "Failed to approve — the task may not be approvable, or the control API is "
+            "unreachable. Check bot logs.",
         )
     except Exception:
         logger.exception("Failed to approve task %s", task_id[:8])

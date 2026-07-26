@@ -24,18 +24,18 @@ from nio import (
     RoomPutStateError,
     RoomSendResponse,
 )
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
-from .task_client import TaskQueueClient
 from .commands import handle_command
 from .formatter import board_signature, board_tasks, format_agent_board, format_digest
+from .task_client import TaskQueueClient
 from .widget_events import (
-    handle_widget_event,
-    EVENT_TASK_LIST,
-    EVENT_TASK_DETAIL,
-    EVENT_TASK_START,
     EVENT_TASK_APPROVE,
+    EVENT_TASK_DETAIL,
+    EVENT_TASK_LIST,
+    EVENT_TASK_START,
+    handle_widget_event,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,13 +62,13 @@ TASK_QUEUE_DIR = os.environ.get("TASK_QUEUE_DIR", os.path.expanduser("~/.claude/
 TASK_QUEUE_API = os.environ.get("TASK_QUEUE_API", "http://127.0.0.1:8485")
 TASK_QUEUE_API_SECRET = os.environ.get("TASK_QUEUE_API_SECRET", "")
 AUTHORIZED_SENDERS = set(
-    s.strip() for s in os.environ.get("AUTHORIZED_MXIDS", "@ted:helmforge.me").split(",") if s.strip()
+    s.strip()
+    for s in os.environ.get("AUTHORIZED_MXIDS", "@ted:helmforge.me").split(",")
+    if s.strip()
 )
 
 # Live-board / digest configuration
-STATE_DIR = os.path.expanduser(
-    os.environ.get("STATE_DIR", "~/.local/state/matrix-task-queue-bot")
-)
+STATE_DIR = os.path.expanduser(os.environ.get("STATE_DIR", "~/.local/state/matrix-task-queue-bot"))
 try:
     DIGEST_HOUR = int(os.environ.get("DIGEST_HOUR", "5"))
 except ValueError:
@@ -81,9 +81,9 @@ except ValueError:
     BOARD_COALESCE_SEC = 2.0
 BOARD_AGENTS = [
     a.strip()
-    for a in os.environ.get(
-        "BOARD_AGENTS", "developer,sysadmin,research,writer,security"
-    ).split(",")
+    for a in os.environ.get("BOARD_AGENTS", "developer,sysadmin,research,writer,security").split(
+        ","
+    )
     if a.strip()
 ]
 # Hard cap on total agent boards. Guards against a malformed/typo'd target_agent in the
@@ -92,10 +92,11 @@ try:
     MAX_BOARD_AGENTS = int(os.environ.get("MAX_BOARD_AGENTS", "25"))
 except ValueError:
     MAX_BOARD_AGENTS = 25
-if MAX_BOARD_AGENTS < len(BOARD_AGENTS):
+if len(BOARD_AGENTS) > MAX_BOARD_AGENTS:
     MAX_BOARD_AGENTS = len(BOARD_AGENTS)
 
 # ── Task file watcher ──────────────────────────────────────────────────
+
 
 class TaskFileHandler(FileSystemEventHandler):
     """Coalesces any queue-file change into a single board refresh.
@@ -118,14 +119,14 @@ class TaskFileHandler(FileSystemEventHandler):
 
     def _fire(self) -> None:  # event-loop thread
         self._timer = None
-        asyncio.ensure_future(self._safe_refresh())
+        asyncio.ensure_future(self._safe_refresh())  # noqa: RUF006 (fire-and-forget; tracked in vikunja)
 
     async def _safe_refresh(self) -> None:
         # Parity with the startup path: a raising refresh must be logged, not lost to
         # asyncio's default "Task exception was never retrieved" (audit INFO).
         try:
             await self._refresh_coro()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("Watcher-triggered board refresh failed")
 
     def _maybe(self, path: str) -> None:
@@ -150,6 +151,7 @@ class TaskFileHandler(FileSystemEventHandler):
 
 
 # ── Bot ────────────────────────────────────────────────────────────────
+
 
 class TaskQueueBot:
     def __init__(self) -> None:
@@ -272,7 +274,9 @@ class TaskQueueBot:
             dropped = extra[max_extra:]
             logger.warning(
                 "Board cap %d reached; dropping %d extra agent board(s): %s",
-                MAX_BOARD_AGENTS, len(dropped), dropped,
+                MAX_BOARD_AGENTS,
+                len(dropped),
+                dropped,
             )
             extra = extra[:max_extra]
         return ordered + extra
@@ -304,7 +308,10 @@ class TaskQueueBot:
                 await self._pin_boards()
 
     async def _pin_boards(self) -> None:
-        """Pin all agent boards in one ``m.room.pinned_events`` state event (order = BOARD_AGENTS)."""
+        """Pin all agent boards in one ``m.room.pinned_events`` state event.
+
+        Board order follows BOARD_AGENTS.
+        """
         tasks = await self.task_client.list_tasks(limit=1000)
         ordered = self._ordered_agents(tasks)
         pinned = [self._board_events[a] for a in ordered if a in self._board_events]
@@ -315,13 +322,11 @@ class TaskQueueBot:
                 ROOM_ID, "m.room.pinned_events", {"pinned": pinned}
             )
             if isinstance(resp, RoomPutStateError):
-                logger.warning(
-                    "Could not pin boards (bot power level too low?): %s", resp
-                )
+                logger.warning("Could not pin boards (bot power level too low?): %s", resp)
                 return
             self._pinned_ids = pinned
             logger.info("Pinned %d agent boards", len(pinned))
-        except Exception as e:  # noqa: BLE001 — pinning is best-effort
+        except Exception as e:
             logger.warning("Pin failed: %s", e)
 
     # ── Daily morning brief ────────────────────────────────────────────
@@ -354,7 +359,7 @@ class TaskQueueBot:
                 await self._post_digest()
                 self._write_digest_stamp(today)
                 logger.info("Morning brief posted for %s", today)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:
                 logger.exception("Digest post failed: %s", e)
 
     # ── Matrix event handlers ──────────────────────────────────────────
@@ -395,10 +400,10 @@ class TaskQueueBot:
         content = getattr(event, "source", {}).get("content", {})
 
         # Mutating actions require authorized sender; read-only queries are open to room members
-        if event_type in (EVENT_TASK_START, EVENT_TASK_APPROVE):
-            if event.sender not in AUTHORIZED_SENDERS:
-                logger.warning("Unauthorized widget action from %s: %s", event.sender, event_type)
-                return
+        is_mutating = event_type in (EVENT_TASK_START, EVENT_TASK_APPROVE)
+        if is_mutating and event.sender not in AUTHORIZED_SENDERS:
+            logger.warning("Unauthorized widget action from %s: %s", event.sender, event_type)
+            return
 
         if event_type in (EVENT_TASK_LIST, EVENT_TASK_DETAIL, EVENT_TASK_START, EVENT_TASK_APPROVE):
             await handle_widget_event(
@@ -433,7 +438,7 @@ class TaskQueueBot:
         try:
             await self._refresh_boards()
             await self._pin_boards()
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             logger.exception("Initial board refresh failed: %s", e)
 
         digest_task = asyncio.create_task(self._digest_loop())

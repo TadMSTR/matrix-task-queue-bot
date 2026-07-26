@@ -103,7 +103,8 @@ class TaskQueueClient:
         if not self._api_base or not self._api_secret:
             logger.error(
                 "Control API not configured (TASK_QUEUE_API / TASK_QUEUE_API_SECRET); "
-                "refusing to mutate %s", path,
+                "refusing to mutate %s",
+                path,
             )
             return {}
         url = f"{self._api_base}{path}"
