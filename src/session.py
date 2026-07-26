@@ -30,7 +30,8 @@ def _build_prompt(task_id: str, mode: str) -> str:
         return (
             f"You have a pending task (id={task_id}). "
             "Read it from task-queue-mcp via get_task. "
-            "Present a summary of the work entailed. Do NOT begin execution — wait for operator approval."
+            "Present a summary of the work entailed. "
+            "Do NOT begin execution — wait for operator approval."
         )
     return (
         f"You have a pending task (id={task_id}). "
@@ -69,7 +70,13 @@ def launch_headless(task_id: str, target_agent: str, mode: str) -> dict[str, str
             stdout=log_fh,
             stderr=subprocess.STDOUT,
         )
-    logger.info("Launched headless session: pid=%d agent=%s task=%s mode=%s", proc.pid, target_agent, task_id, mode)
+    logger.info(
+        "Launched headless session: pid=%d agent=%s task=%s mode=%s",
+        proc.pid,
+        target_agent,
+        task_id,
+        mode,
+    )
     return {"ok": "true", "pid": str(proc.pid)}
 
 

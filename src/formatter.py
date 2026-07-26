@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import UTC
 from typing import Any
 
 
@@ -10,16 +11,16 @@ def _esc(s: str) -> str:
 
 
 def _ago(ts: Any) -> str:
-    from datetime import datetime, timezone
+    from datetime import datetime
 
     try:
         if isinstance(ts, datetime):
-            dt = ts if ts.tzinfo else ts.replace(tzinfo=timezone.utc)
+            dt = ts if ts.tzinfo else ts.replace(tzinfo=UTC)
         elif isinstance(ts, str):
             dt = datetime.fromisoformat(ts)
         else:
             return str(ts)
-        delta = datetime.now(timezone.utc) - dt
+        delta = datetime.now(UTC) - dt
         secs = int(delta.total_seconds())
         if secs < 60:
             return "just now"
@@ -80,9 +81,7 @@ def format_task_table(tasks: list[dict[str, Any]]) -> tuple[str, str]:
     html = (
         "<table><thead><tr>"
         "<th>ID</th><th>Agent</th><th>Status</th><th>Summary</th><th>Age</th>"
-        "</tr></thead><tbody>"
-        + "".join(html_rows)
-        + "</tbody></table>"
+        "</tr></thead><tbody>" + "".join(html_rows) + "</tbody></table>"
     )
     return plain, html
 
@@ -121,7 +120,8 @@ def format_task_detail(task: dict[str, Any]) -> tuple[str, str]:
         plain_lines.append("History:")
         for h in history[-5:]:
             plain_lines.append(
-                f"  {_ago(h.get('timestamp', ''))} — {h.get('status', '')} by {h.get('actor', '')} {h.get('note', '')}"
+                f"  {_ago(h.get('timestamp', ''))} — {h.get('status', '')} "
+                f"by {h.get('actor', '')} {h.get('note', '')}"
             )
 
     plain = "\n".join(plain_lines)
@@ -169,9 +169,10 @@ def format_status_update(task: dict[str, Any], old_status: str) -> tuple[str, st
     workflow_mode = task.get("workflow_mode", "semi-auto")
     se = _status_emoji(new_status)
 
-    # SECURITY[accepted]: mode_tag uses raw workflow_mode in plain text. Mitigated: value is validated
-    # against {"semi-auto", "auto"} at submission time by task-queue-mcp. Manual YAML edits require
-    # filesystem access (accepted risk for internal tooling). Audit: 2026-06-08/workflow-qol-2026-06 INFO-2.
+    # SECURITY[accepted]: mode_tag uses raw workflow_mode in plain text. Mitigated: value
+    # is validated against {"semi-auto", "auto"} at submission time by task-queue-mcp. Manual
+    # YAML edits require filesystem access (accepted risk for internal tooling).
+    # Audit: 2026-06-08/workflow-qol-2026-06 INFO-2.
     mode_tag = f" [{workflow_mode}]" if new_status == "approved" else ""
     plain = f"Task {short_id} ({target}): {old_status} → {new_status}{mode_tag} — {summary}"
     html = (
@@ -204,9 +205,7 @@ def _priority_of(task: dict[str, Any]) -> str:
 def board_tasks(agent: str, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """One agent's non-terminal tasks, sorted priority → status → age (oldest first)."""
     rows = [
-        t
-        for t in tasks
-        if t.get("target_agent") == agent and t.get("status") not in BOARD_TERMINAL
+        t for t in tasks if t.get("target_agent") == agent and t.get("status") not in BOARD_TERMINAL
     ]
     rows.sort(
         key=lambda t: (
@@ -278,8 +277,7 @@ def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, st
     if not tasks:
         plain = f"{label} ({n}) — no open tasks (updated {updated})"
         html = (
-            f"<strong>{_esc(label)} ({n})</strong> — ✔️ no open tasks"
-            f"<br/><em>updated {updated}</em>"
+            f"<strong>{_esc(label)} ({n})</strong> — ✔️ no open tasks<br/><em>updated {updated}</em>"
         )
         return plain, html
 
@@ -287,7 +285,8 @@ def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, st
     for t in tasks:
         plain_lines.append(
             f"  {str(t.get('id', ''))[:8]} | {_priority_of(t):6s} | {t.get('status', '?'):15s} "
-            f"| {t.get('task_type', '?'):10s} | {t.get('summary', '')[:60]} | {_ago(t.get('created', ''))}"
+            f"| {t.get('task_type', '?'):10s} | {t.get('summary', '')[:60]} "
+            f"| {_ago(t.get('created', ''))}"
         )
     plain_lines.append(f"  updated {updated}")
     plain = "\n".join(plain_lines)
@@ -296,9 +295,7 @@ def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, st
         f"<strong>{_esc(label)} ({n})</strong>"
         "<table><thead><tr>"
         "<th>ID</th><th>Priority</th><th>Status</th><th>Type</th><th>Summary</th><th>Age</th>"
-        "</tr></thead><tbody>"
-        + _board_rows_html(tasks)
-        + "</tbody></table>"
+        "</tr></thead><tbody>" + _board_rows_html(tasks) + "</tbody></table>"
         f"<em>updated {updated}</em>"
     )
     return plain, html
