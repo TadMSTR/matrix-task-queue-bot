@@ -170,18 +170,30 @@ def format_status_update(task: dict[str, Any], old_status: str) -> tuple[str, st
     se = _status_emoji(new_status)
 
     # SECURITY[accepted]: mode_tag uses raw workflow_mode in plain text. Mitigated: value
-    # is validated against {"semi-auto", "auto"} at submission time by task-queue-mcp. Manual
-    # YAML edits require filesystem access (accepted risk for internal tooling).
+    # is validated against task-queue-mcp's VALID_WORKFLOW_MODES at submission time.
+    # Manual YAML edits require filesystem access (accepted risk for internal tooling).
     # Audit: 2026-06-08/workflow-qol-2026-06 INFO-2.
+    # (The set was {"semi-auto", "auto"} when that note was written; `manual-then-auto`
+    # joined it in task-queue-headless-chain-2026-08. The mitigation is unchanged —
+    # it rests on there being validation, not on the specific values.)
     mode_tag = f" [{workflow_mode}]" if new_status == "approved" else ""
     plain = f"Task {short_id} ({target}): {old_status} → {new_status}{mode_tag} — {summary}"
     html = (
         f"{se} Task <code>{_esc(short_id)}</code> assigned to <strong>{_esc(target)}</strong> "
         f"moved to <strong>{_esc(new_status)}</strong>"
     )
-    if new_status == "approved" and workflow_mode == "semi-auto":
+    # Deliberately the INVERSE of the dispatcher's launch test, not a list of modes.
+    # task-dispatcher.py launches on `workflow_mode == "auto"` and sends everything else
+    # to operator pickup, so "everything that is not literally auto is waiting for you"
+    # is the same rule stated once. Enumerating modes here instead is what left
+    # `manual-then-auto` rendering as though it had been launched, when it is in fact
+    # sitting and waiting — the single most misleading thing this line could say.
+    if new_status == "approved" and workflow_mode != "auto":
+        waiting = f"{_esc(workflow_mode)} — awaiting operator pickup"
+        if workflow_mode == "manual-then-auto":
+            waiting += "; the rest of the chain runs itself"
         html += (
-            f" <em>[semi-auto — awaiting operator pickup]</em> — {_esc(summary)}"
+            f" <em>[{waiting}]</em> — {_esc(summary)}"
             f"<br/>Resume: check #{_esc(target)} room for task details."
         )
     else:
