@@ -29,7 +29,7 @@ from watchdog.observers import Observer
 
 from .commands import handle_command
 from .formatter import board_signature, board_tasks, format_agent_board, format_digest
-from .task_client import TaskQueueClient
+from .task_client import LIST_PAGE_MAX, TaskQueueClient, TokenFileError, load_token
 from .widget_events import (
     EVENT_TASK_APPROVE,
     EVENT_TASK_DETAIL,
@@ -57,10 +57,23 @@ ACCESS_TOKEN = os.environ["MATRIX_ACCESS_TOKEN"]
 BOT_USER_ID = os.environ.get("MATRIX_BOT_USER_ID", "@forge-task-queue:helmforge.me")
 ROOM_ID = os.environ["MATRIX_ROOM_TASK_QUEUE"]
 MCP_URL = os.environ.get("TASK_QUEUE_MCP_URL", "http://localhost:8485/mcp")
+# Watched as a change trigger only: an event causes an API read, never a file parse.
 TASK_QUEUE_DIR = os.environ.get("TASK_QUEUE_DIR", os.path.expanduser("~/.claude/task-queue"))
-# Mutations route through the MCP control API (shared-secret gated). Reads stay direct.
+# Every queue read and write goes through task-queue-mcp's HTTP API, under this bot's own
+# client token (channel `matrix-bot`). See task_client.py.
 TASK_QUEUE_API = os.environ.get("TASK_QUEUE_API", "http://127.0.0.1:8485")
-TASK_QUEUE_API_SECRET = os.environ.get("TASK_QUEUE_API_SECRET", "")
+# A PATH, not the token. The file holds the plaintext token; the server holds its digest.
+TASK_QUEUE_TOKEN_FILE = os.environ.get("TASK_QUEUE_TOKEN_FILE", "")
+if not TASK_QUEUE_TOKEN_FILE:
+    print("ERROR: Missing required env var: TASK_QUEUE_TOKEN_FILE", file=sys.stderr)
+    sys.exit(1)
+try:
+    TASK_QUEUE_TOKEN = load_token(TASK_QUEUE_TOKEN_FILE)
+except TokenFileError as exc:
+    # Fail closed at startup, like a missing Matrix credential. A bot that started without
+    # a token would render every board from failed reads.
+    print(f"ERROR: {exc}", file=sys.stderr)
+    sys.exit(1)
 AUTHORIZED_SENDERS = set(
     s.strip()
     for s in os.environ.get("AUTHORIZED_MXIDS", "@ted:helmforge.me").split(",")
@@ -158,11 +171,7 @@ class TaskQueueBot:
         self.client = AsyncClient(HOMESERVER, BOT_USER_ID)
         self.client.access_token = ACCESS_TOKEN
         self.client.user_id = BOT_USER_ID
-        self.task_client = TaskQueueClient(
-            TASK_QUEUE_DIR,
-            api_base=TASK_QUEUE_API,
-            api_secret=TASK_QUEUE_API_SECRET,
-        )
+        self.task_client = TaskQueueClient(TASK_QUEUE_API, TASK_QUEUE_TOKEN)
         self._observer: Observer | None = None
         # agent → Matrix event_id of its pinned board (persisted to boards.json)
         self._board_events: dict[str, str] = {}
@@ -284,16 +293,24 @@ class TaskQueueBot:
     async def _refresh_boards(self) -> None:
         """Rebuild every agent board from a fresh queue scan; edit only what changed."""
         async with self._refresh_lock:
-            tasks = await self.task_client.list_tasks(limit=1000)
+            # A failed read raises (TaskQueueError) and leaves every board as it was. An
+            # empty list here would repaint every board as "no open tasks", which is a
+            # confident, wrong answer.
+            page = await self.task_client.list_page(limit=LIST_PAGE_MAX)
+            tasks = page.tasks
             ordered = self._ordered_agents(tasks)
             created_new = False
             for agent in ordered:
                 rows = board_tasks(agent, tasks)
-                sig = board_signature(agent, rows)
+                # Truncation is part of the signature, so a board is re-rendered when it
+                # starts or stops being truncated.
+                sig = board_signature(agent, rows) + ("||truncated" if page.truncated else "")
                 event_id = self._board_events.get(agent)
                 if event_id and self._board_sigs.get(agent) == sig:
                     continue  # no meaningful change — skip the edit to avoid churn
-                plain, html = format_agent_board(agent, rows)
+                plain, html = format_agent_board(
+                    agent, rows, truncated=page.truncated, matched=page.count
+                )
                 if event_id:
                     await self._edit_html(ROOM_ID, event_id, plain, html)
                 else:
@@ -312,7 +329,7 @@ class TaskQueueBot:
 
         Board order follows BOARD_AGENTS.
         """
-        tasks = await self.task_client.list_tasks(limit=1000)
+        tasks = await self.task_client.list_tasks(limit=LIST_PAGE_MAX)
         ordered = self._ordered_agents(tasks)
         pinned = [self._board_events[a] for a in ordered if a in self._board_events]
         if not pinned or pinned == self._pinned_ids:
@@ -332,12 +349,14 @@ class TaskQueueBot:
     # ── Daily morning brief ────────────────────────────────────────────
 
     async def _post_digest(self) -> None:
-        tasks = await self.task_client.list_tasks(limit=1000)
-        ordered = self._ordered_agents(tasks)
-        agent_tasks = [(a, board_tasks(a, tasks)) for a in ordered]
+        page = await self.task_client.list_page(limit=LIST_PAGE_MAX)
+        ordered = self._ordered_agents(page.tasks)
+        agent_tasks = [(a, board_tasks(a, page.tasks)) for a in ordered]
         agent_tasks = [(a, rows) for a, rows in agent_tasks if rows]  # only agents with open work
         date_str = datetime.now().strftime("%Y-%m-%d")
-        plain, html = format_digest(agent_tasks, date_str)
+        plain, html = format_digest(
+            agent_tasks, date_str, truncated=page.truncated, matched=page.count
+        )
         resp = await self._send_html(ROOM_ID, plain, html)
         if resp is None:
             raise RuntimeError("digest send failed")

@@ -6,8 +6,9 @@ on:
   pull_request:
     branches: [main]
 
-# matrix-task-queue-bot has no test suite and is not packaged (no [build-system]),
-# so CI is lint-only for now. Test coverage + packaging are tracked in Vikunja.
+# matrix-task-queue-bot is not packaged (no [build-system]), so CI installs only what the
+# tests import. tests/ imports src.task_client and src.formatter, never src.bot, which reads
+# Matrix credentials at import time.
 jobs:
   lint:
     name: Lint (ruff)
@@ -28,3 +29,20 @@ jobs:
 
       - name: Format check (ruff)
         run: ruff format --check .
+
+  test:
+    name: Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install test dependencies
+        run: pip install "httpx>=0.28.0" "pytest>=8"
+
+      - name: Run tests
+        run: python -m pytest -q

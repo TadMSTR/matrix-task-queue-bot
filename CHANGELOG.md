@@ -6,6 +6,34 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-29
+
+Own client token, and every queue read through task-queue-mcp's API. Build
+`operator-panel-2026-09-p2-queue-read-api`; vikunja#396. **Requires task-queue-mcp v0.11.0
+or later, and `TASK_QUEUE_TOKEN_FILE`.**
+
+### Changed
+
+- **The bot authenticates with its own client token**, read from the file named by
+  `TASK_QUEUE_TOKEN_FILE` and sent as `X-Task-Queue-Token`. The bot refuses to start if the
+  variable is unset or the file is missing or empty. Its writes are recorded with
+  `channel: matrix-bot`.
+- **Every read goes through the API.** `list_tasks` calls `GET /tasks` and `get_task` calls
+  `GET /tasks/{id}`. The queue's TTL, dead-letter and status rules now come from the queue's
+  owner. An 8+ character id prefix is resolved against the listing, and an ambiguous prefix
+  now resolves to nothing, where it used to pick whichever file came first.
+- **A failed read raises** instead of returning an empty list, so a board refresh that
+  cannot read the queue leaves the boards as they were rather than painting them empty.
+- **Truncation is shown.** Boards and the morning brief carry a notice when the API
+  truncated the read, and it is logged.
+- The watchdog watcher is now a change trigger only.
+
+### Removed
+
+- `TASK_QUEUE_API_SECRET` and the `X-Task-Queue-Secret` header.
+- The `pyyaml` dependency; nothing parses YAML any more.
+
+
 ### Fixed
 
 - **Status boards no longer render a gated task as though it had been launched.**
@@ -27,6 +55,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   vikunja#533.)
 
 ### Added
+
+- The first test suite (`tests/`), and a pytest step in CI.
 
 - Standard CI workflow (`ci.yml`) — ruff lint + format check (pinned `ruff==0.16.0`).
   Lint-only: the bot has no test suite and is not packaged (no `[build-system]`).

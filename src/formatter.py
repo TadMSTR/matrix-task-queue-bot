@@ -274,7 +274,24 @@ def _board_rows_html(tasks: list[dict[str, Any]]) -> str:
     return "".join(rows)
 
 
-def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, str]:
+def truncation_notice(truncated: bool, matched: int) -> str:
+    """
+    The line a board or digest carries when the queue read was cut off, else "".
+
+    Rendered, never dropped. A truncated read makes every count on the board a floor, and
+    an agent's board can read "no open tasks" while it has some past the cut.
+    """
+    if not truncated:
+        return ""
+    return f"⚠ queue read truncated: {matched} records matched, not all shown"
+
+
+def format_agent_board(
+    agent: str,
+    tasks: list[dict[str, Any]],
+    truncated: bool = False,
+    matched: int = 0,
+) -> tuple[str, str]:
     """Return (plain, html) for one agent's live board.
 
     ``tasks`` must already be filtered + sorted board rows (see ``board_tasks``).
@@ -285,12 +302,16 @@ def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, st
     n = len(tasks)
     label = agent.upper()
     updated = _now_hhmm()
+    notice = truncation_notice(truncated, matched)
 
     if not tasks:
         plain = f"{label} ({n}) — no open tasks (updated {updated})"
         html = (
             f"<strong>{_esc(label)} ({n})</strong> — ✔️ no open tasks<br/><em>updated {updated}</em>"
         )
+        if notice:
+            plain += f"\n  {notice}"
+            html += f"<br/><strong>{_esc(notice)}</strong>"
         return plain, html
 
     plain_lines = [f"{label} ({n})"]
@@ -301,6 +322,8 @@ def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, st
             f"| {_ago(t.get('created', ''))}"
         )
     plain_lines.append(f"  updated {updated}")
+    if notice:
+        plain_lines.append(f"  {notice}")
     plain = "\n".join(plain_lines)
 
     html = (
@@ -310,11 +333,16 @@ def format_agent_board(agent: str, tasks: list[dict[str, Any]]) -> tuple[str, st
         "</tr></thead><tbody>" + _board_rows_html(tasks) + "</tbody></table>"
         f"<em>updated {updated}</em>"
     )
+    if notice:
+        html += f"<br/><strong>{_esc(notice)}</strong>"
     return plain, html
 
 
 def format_digest(
-    agent_tasks: list[tuple[str, list[dict[str, Any]]]], date_str: str
+    agent_tasks: list[tuple[str, list[dict[str, Any]]]],
+    date_str: str,
+    truncated: bool = False,
+    matched: int = 0,
 ) -> tuple[str, str]:
     """Return (plain, html) for the daily morning brief — open boards stacked.
 
@@ -327,6 +355,11 @@ def format_digest(
 
     plain_parts = [header, ""]
     html_parts = [f"<strong>\U0001f304 {_esc(header)}</strong>"]
+    # Once, at the top, rather than on every stacked board.
+    notice = truncation_notice(truncated, matched)
+    if notice:
+        plain_parts.insert(1, notice)
+        html_parts.append(f"<br/><strong>{_esc(notice)}</strong>")
     for agent, tasks in agent_tasks:
         p, h = format_agent_board(agent, tasks)
         plain_parts.append(p)
