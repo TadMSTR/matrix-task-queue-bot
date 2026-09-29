@@ -149,6 +149,39 @@ def test_get_task_by_prefix_resolves_one_match():
     assert seen[0].url.path == "/tasks"
 
 
+def test_a_prefix_on_a_truncated_page_resolves_to_nothing():
+    tid = "abcdef12-0000-4000-8000-000000000000"
+    client, _ = _client(lambda r: _page([{"id": tid}], count=1500, truncated=True))
+    assert asyncio.run(client.get_task("abcdef12")) == {}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"ok": True, "tasks": {"id": "x"}, "count": 1},  # dict, would iterate to []
+        {"ok": True, "tasks": "abc", "count": 1},  # string
+        {"ok": True, "count": 0},  # missing
+        ["not", "an", "object"],
+        {"ok": True, "tasks": [], "count": "many"},  # unconvertible count
+    ],
+)
+def test_a_malformed_list_body_raises(body):
+    client, _ = _client(lambda r: httpx.Response(200, json=body))
+    with pytest.raises(TaskQueueError, match="malformed"):
+        asyncio.run(client.list_tasks())
+
+
+def test_a_non_json_list_body_raises():
+    client, _ = _client(lambda r: httpx.Response(200, text="<html>proxy error</html>"))
+    with pytest.raises(TaskQueueError, match="malformed"):
+        asyncio.run(client.list_tasks())
+
+
+def test_a_numeric_string_count_is_accepted():
+    client, _ = _client(lambda r: httpx.Response(200, json={"tasks": [], "count": "3"}))
+    assert asyncio.run(client.list_page()).count == 3
+
+
 def test_an_ambiguous_prefix_resolves_to_nothing():
     a = "abcdef12-0000-4000-8000-000000000000"
     b = "abcdef12-1111-4000-8000-000000000000"

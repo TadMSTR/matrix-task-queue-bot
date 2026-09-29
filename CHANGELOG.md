@@ -56,10 +56,9 @@ or later, and `TASK_QUEUE_TOKEN_FILE`.**
 
 ### Added
 
-- The first test suite (`tests/`), and a pytest step in CI.
-
+- The first test suite (`tests/`), and a pytest job in CI.
 - Standard CI workflow (`ci.yml`) — ruff lint + format check (pinned `ruff==0.16.0`).
-  Lint-only: the bot has no test suite and is not packaged (no `[build-system]`).
+  The bot is not packaged (no `[build-system]`).
 - Release workflow (`release.yml`) — a `vX.Y.Z` tag cuts a source-only GitHub Release.
 - Explicit ruff config (`select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]`) to pin
   the enforced ruleset against ruff's widening defaults.

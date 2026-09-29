@@ -125,13 +125,17 @@ class TaskQueueClient:
         resp = await self._get("/tasks", params)
         if resp.status_code != 200:
             raise TaskQueueError(f"GET /tasks -> {resp.status_code}: {resp.text[:200]}")
-        data = resp.json()
-        tasks = [t for t in data.get("tasks", []) if isinstance(t, dict)]
-        page = TaskPage(
-            tasks=tasks,
-            count=int(data.get("count", len(tasks))),
-            truncated=bool(data.get("truncated", False)),
-        )
+        # A malformed body is a failed read, not an empty queue. Iterating a dict or a string
+        # "tasks" would otherwise filter down to [] and repaint every board as empty.
+        try:
+            data = resp.json()
+            if not isinstance(data, dict) or not isinstance(data.get("tasks"), list):
+                raise ValueError("expected an object with a 'tasks' list")
+            tasks = [t for t in data["tasks"] if isinstance(t, dict)]
+            count = int(data.get("count", len(tasks)))
+        except (ValueError, TypeError) as exc:
+            raise TaskQueueError(f"GET /tasks returned a malformed body: {exc}") from None
+        page = TaskPage(tasks=tasks, count=count, truncated=data.get("truncated") is True)
         if page.truncated:
             logger.warning(
                 "task list truncated: %d of %d matching records returned (limit %d)",
@@ -182,6 +186,14 @@ class TaskQueueClient:
         prefix = task_id.lower()
         page = await self.list_page(limit=LIST_PAGE_MAX)
         matches = [t for t in page.tasks if str(t.get("id", "")).startswith(prefix)]
+        if page.truncated and matches:
+            # A truncated page cannot prove the prefix is unique: a second match may sit
+            # past the cut. Refuse rather than act on the one that happened to be visible.
+            logger.warning(
+                "id prefix %s: queue listing truncated, cannot prove it is unique; use the full id",
+                prefix,
+            )
+            return {}
         if len(matches) > 1:
             # The old reader returned whichever file it met first. Acting on an arbitrary
             # one of two tasks is worse than asking for a longer id.
