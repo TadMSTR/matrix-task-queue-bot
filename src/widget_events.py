@@ -7,6 +7,7 @@ from typing import Any
 
 from nio import AsyncClient
 
+from .commands import launch_refusal
 from .session import launch_headless
 from .task_client import TaskQueueClient
 
@@ -67,8 +68,13 @@ async def handle_widget_event(
             task_id = content.get("task_id", "")
             mode = content.get("mode", "review")
             task = await task_client.get_task(task_id)
-            target_agent = task.get("target_agent", "")
-            result = launch_headless(task_id, target_agent, mode)
+            # Same rule as `!task start`: never launch at an archived, dead-lettered or
+            # finished task, which a full-id lookup can now return.
+            why = launch_refusal(task) if task else "not found"
+            if why:
+                result = {"ok": "false", "error": f"not launching: task is {why}"}
+            else:
+                result = launch_headless(task_id, task.get("target_agent", ""), mode)
             await _send_response(
                 client,
                 room_id,

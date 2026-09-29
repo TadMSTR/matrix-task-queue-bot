@@ -27,6 +27,10 @@ or later, and `TASK_QUEUE_TOKEN_FILE`.**
 - **Truncation is shown.** Boards and the morning brief carry a notice when the API
   truncated the read, and it is logged.
 - The watchdog watcher is now a change trigger only.
+- **A Start launches only live, unfinished work.** A full id now also resolves archived and
+  dead-lettered records, which the old file scan never saw. `!task start` / `!task run` and
+  the widget's start event refuse any task outside the live queue or in a terminal status,
+  and say why, so the launch surface is no wider than before.
 
 ### Removed
 
