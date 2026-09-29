@@ -59,6 +59,9 @@ pyproject.toml
   or ask for the server cap to be raised.
 - **The token is in a file; the env holds only its path.** Never send it as
   `Authorization`, and never log it.
+- **A launched session never inherits the bot's credentials.** `launch_headless` passes
+  `env=child_env()`, which strips the bot's Matrix and task-queue credentials. A new
+  credential the bot loads must be added to `_CHILD_ENV_DENY` in `session.py`.
 - **An ambiguous id prefix resolves to nothing.** Acting on an arbitrary one of two tasks is
   worse than asking for a longer id.
 

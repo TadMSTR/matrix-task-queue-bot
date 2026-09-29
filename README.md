@@ -90,7 +90,7 @@ A stamp file `${STATE_DIR}/digest-stamp` records the last-sent date to guard aga
 
 The bot authenticates to task-queue-mcp with its own client token, sent as `X-Task-Queue-Token` (never `Authorization`). The server holds only the token's `sha256:` digest, registered as client `matrix-bot` with `read,operator-write` scopes, and records the bot's writes with `channel: matrix-bot`. See task-queue-mcp's README for minting a token and its digest.
 
-The environment carries the file's **path**, never the token. Keep the file `0600`. The bot launches no agents, so the path reaches nothing else. Before v0.2.0 the bot sent a shared secret, `TASK_QUEUE_API_SECRET`, as `X-Task-Queue-Secret`; that variable is no longer read.
+The environment carries the file's **path**, never the token. Keep the file `0600`. Sessions the bot launches (`!task start` / `!task run`, widget start) get the bot's environment **minus its credentials**: `MATRIX_ACCESS_TOKEN`, `TASK_QUEUE_API_SECRET`, `TASK_QUEUE_TOKEN_FILE`, and any `TASK_QUEUE_TOKEN_*` / `TASK_QUEUE_CLIENT_*` are removed (`session.child_env`). Before v0.2.0 every launched session inherited all of them. This is containment only: a launched session runs as the same OS user and can still read the token file. Before v0.2.0 the bot sent a shared secret, `TASK_QUEUE_API_SECRET`, as `X-Task-Queue-Secret`; that variable is no longer read.
 
 ## Installation
 

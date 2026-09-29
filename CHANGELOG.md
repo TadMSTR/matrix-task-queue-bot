@@ -27,6 +27,10 @@ or later, and `TASK_QUEUE_TOKEN_FILE`.**
 - **Truncation is shown.** Boards and the morning brief carry a notice when the API
   truncated the read, and it is logged.
 - The watchdog watcher is now a change trigger only.
+- **Launched sessions no longer inherit the bot's credentials.** `launch_headless` spawned
+  `claude` with the bot's whole environment, so every session started from Matrix held
+  `MATRIX_ACCESS_TOKEN` and `TASK_QUEUE_API_SECRET`. The child environment now has the
+  bot's credentials removed (`session.child_env`).
 - **A Start launches only live, unfinished work.** A full id now also resolves archived and
   dead-lettered records, which the old file scan never saw. `!task start` / `!task run` and
   the widget's start event refuse any task outside the live queue or in a terminal status,

@@ -10,9 +10,9 @@ queue YAML. Its file watcher is only a change trigger (see bot.py).
 The bot authenticates with its own client token, sent as ``X-Task-Queue-Token`` and
 never as ``Authorization``: task-queue-mcp's framework offers any bearer to its
 agent-token verifier, and the control routes read only their own header. The token is
-read from the file named by ``TASK_QUEUE_TOKEN_FILE``. The bot is a PM2 process that
-launches no agents, so a path in its environment reaches nothing else; the token value
-itself is never in any environment.
+read from the file named by ``TASK_QUEUE_TOKEN_FILE``. The token value is never in any
+environment, and the path is stripped from the environment of every session the bot
+launches (see session.child_env).
 """
 
 from __future__ import annotations
