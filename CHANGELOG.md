@@ -30,6 +30,8 @@ or later, and `TASK_QUEUE_TOKEN_FILE`.**
 - **`TASK_QUEUE_API` must be `https://`, or `http://` to a loopback host.** The token
   (read + operator-write) goes on every request, so the bot refuses to start rather than
   send it in cleartext to another host. The deployed default, `http://127.0.0.1:8485`, passes.
+  For an `http://` base, environment proxies (`HTTP_PROXY` etc.) are ignored, so the token
+  cannot reach a proxy host in cleartext either.
 - **Launched sessions no longer inherit the bot's credentials.** `launch_headless` spawned
   `claude` with the bot's whole environment, so every session started from Matrix held
   `MATRIX_ACCESS_TOKEN` and `TASK_QUEUE_API_SECRET`. The child environment now has the

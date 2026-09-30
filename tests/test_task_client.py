@@ -278,3 +278,27 @@ def test_a_malformed_detail_body_raises(body):
     client, _ = _client(lambda r: httpx.Response(200, **body))
     with pytest.raises(TaskQueueError, match="malformed"):
         asyncio.run(client.get_task(str(uuid.uuid4())))
+
+
+def test_a_loopback_http_client_ignores_proxy_env(monkeypatch):
+    """No MockTransport here: supplying a transport disables proxy selection by itself."""
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example:3128")
+    monkeypatch.setenv("ALL_PROXY", "http://proxy.example:3128")
+    monkeypatch.delenv("NO_PROXY", raising=False)
+    client = TaskQueueClient("http://127.0.0.1:8485", TOKEN)
+    http = client._client()
+    try:
+        assert http._trust_env is False
+        # httpx resolves env proxies into _mounts; none may route this client.
+        assert all(v is None for v in http._mounts.values())
+    finally:
+        asyncio.run(http.aclose())
+
+
+def test_an_https_client_leaves_proxy_selection_to_the_environment():
+    client = TaskQueueClient("https://tasks.example.com", TOKEN)
+    http = client._client()
+    try:
+        assert http._trust_env is True
+    finally:
+        asyncio.run(http.aclose())

@@ -134,6 +134,12 @@ class TaskQueueClient:
             timeout=10.0,
             transport=self._transport,
             headers={TOKEN_HEADER: self._token},
+            # httpx honours HTTP(S)_PROXY from the environment by default. For a plain-http
+            # base, which check_api_base only allows on loopback, a proxy variable would
+            # send the token in cleartext to the proxy host: the one hop the loopback check
+            # cannot see. So environment proxies are off for http://, and left to the
+            # environment for https://, where the token is encrypted to the endpoint.
+            trust_env=not self._api_base.startswith("http://"),
         )
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
