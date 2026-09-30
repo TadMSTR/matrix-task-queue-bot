@@ -302,3 +302,14 @@ def test_an_https_client_leaves_proxy_selection_to_the_environment():
         assert http._trust_env is True
     finally:
         asyncio.run(http.aclose())
+
+
+@pytest.mark.parametrize("base", ["HTTP://127.0.0.1:8485", "Http://localhost:8485"])
+def test_a_case_variant_http_scheme_still_ignores_proxy_env(base, monkeypatch):
+    monkeypatch.setenv("HTTP_PROXY", "http://proxy.example:3128")
+    assert check_api_base(base).startswith("http://")
+    http = TaskQueueClient(base, TOKEN)._client()
+    try:
+        assert http._trust_env is False
+    finally:
+        asyncio.run(http.aclose())

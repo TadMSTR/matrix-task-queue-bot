@@ -24,7 +24,7 @@ import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -66,14 +66,18 @@ def check_api_base(api_base: str) -> str:
     """
     parts = urlsplit(api_base)
     host = (parts.hostname or "").lower()
+    # Returned in normalised form (urlsplit lowercases the scheme), so everything
+    # downstream that asks "is this http://?" sees one spelling. Returning the caller's
+    # string let `HTTP://127.0.0.1` pass here and then miss the proxy switch.
+    normalised = urlunsplit(parts).rstrip("/")
     if parts.scheme == "https" and host:
-        return api_base.rstrip("/")
+        return normalised
     if parts.scheme == "http" and host:
         if host == "localhost":
-            return api_base.rstrip("/")
+            return normalised
         try:
             if ipaddress.ip_address(host).is_loopback:
-                return api_base.rstrip("/")
+                return normalised
         except ValueError:
             pass
     raise InsecureApiBaseError(
@@ -139,7 +143,7 @@ class TaskQueueClient:
             # send the token in cleartext to the proxy host: the one hop the loopback check
             # cannot see. So environment proxies are off for http://, and left to the
             # environment for https://, where the token is encrypted to the endpoint.
-            trust_env=not self._api_base.startswith("http://"),
+            trust_env=urlsplit(self._api_base).scheme != "http",
         )
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
