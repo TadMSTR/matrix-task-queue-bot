@@ -10,6 +10,25 @@ from .task_client import TaskQueueClient
 
 logger = logging.getLogger(__name__)
 
+# Terminal statuses. A task in one of these has nothing left for an agent to do.
+LAUNCH_REFUSED_STATUSES = frozenset({"completed", "failed", "cancelled"})
+
+
+def launch_refusal(task: dict) -> str | None:
+    """
+    Why a Start must not launch a session for this task, or None if it may.
+
+    Shared by `!task start/run` and the widget's start event, so the rule exists once.
+    """
+    location = task.get("queue_location", "queue")
+    if location != "queue":
+        return location
+    status = task.get("status", "")
+    if status in LAUNCH_REFUSED_STATUSES:
+        return f"status {status}"
+    return None
+
+
 HELP_TEXT = """\
 !queue — List all non-terminal tasks
 !queue <agent> — List tasks for a specific agent
@@ -120,6 +139,18 @@ async def _start_task(task_id: str, mode: str, client: TaskQueueClient) -> tuple
     task = await client.get_task(task_id)
     if not task:
         return f"Task not found: {task_id}", f"Task not found: <code>{task_id}</code>"
+
+    # A full id now resolves archived and dead-lettered records too (GET /tasks/{id}), where
+    # the old file scan saw only the live queue. Viewing those is useful; launching an agent
+    # at one is not, so a Start is limited to what it could reach before: live, unfinished
+    # work. The dispatcher would refuse the agent's claim later, but by then a session has
+    # already been spawned.
+    why = launch_refusal(task)
+    if why:
+        return (
+            f"Not launching task {task_id[:8]}: it is {why}, not live work.",
+            f"Not launching task <code>{task_id[:8]}</code>: it is {why}, not live work.",
+        )
 
     target_agent = task.get("target_agent", "")
     result = launch_headless(task_id, target_agent, mode)

@@ -4,7 +4,7 @@ Matrix bot for task queue management on forge. Accepts text commands in a design
 
 ## Overview
 
-The bot runs as a PM2 always-on service (`matrix-task-queue-bot`) using the `matrix-nio` Python client. It reads task YAML files directly from `~/.claude/task-queue/` — no HTTP dependency on task-queue-mcp for queries.
+The bot runs as a PM2 always-on service (`matrix-task-queue-bot`) using the `matrix-nio` Python client. Every queue read and write goes through task-queue-mcp's HTTP API (`GET /tasks`, `GET /tasks/{id}`, and the `POST` control routes), under the bot's own client token. It needs task-queue-mcp v0.11.0 or later. The bot parses no queue YAML: the queue's TTL, dead-letter and status rules are applied by the queue's owner, not re-implemented here.
 
 Four subsystems run concurrently:
 
@@ -46,9 +46,12 @@ Responses are sent as custom room events (`com.helmforge.task.response` / `com.h
 
 ## Live status boards
 
-The file watcher (watchdog, non-recursive) monitors `~/.claude/task-queue/` for any change — creation, modification, deletion, or move (archival). All events are collapsed by a single coalesce timer (`BOARD_COALESCE_SEC`, default 2s) into one refresh pass.
+The file watcher (watchdog, non-recursive) monitors `TASK_QUEUE_DIR` (default `~/.claude/task-queue/`) for any change — creation, modification, deletion, or move (archival). It is **a change trigger only**: an event causes an API read, never a file parse. All events are collapsed by a single coalesce timer (`BOARD_COALESCE_SEC`, default 2s) into one refresh pass.
 
-Each refresh rebuilds one board **per agent** in `BOARD_AGENTS` (plus any other agent seen in the queue, appended lazily) from a fresh directory scan:
+Each refresh rebuilds one board **per agent** in `BOARD_AGENTS` (plus any other agent seen in the queue, appended lazily) from one `GET /tasks?limit=1000`:
+
+- If the API reports `truncated` (more than 1000 records matched), every board and the morning brief say so: `⚠ queue read truncated: N records matched, not all shown`. It is logged too. It is never hidden, because an agent's board could otherwise read "no open tasks" while it has some past the cut.
+- If the read fails (API down, token refused), the refresh is abandoned and logged, and **every board keeps its last content**. An empty result is never painted as an empty queue.
 
 - Each board lists that agent's **non-terminal** tasks (`submitted`, `approved`, `pending-approval`, `in-progress`; `completed` / `failed` / `cancelled` are excluded), sorted by priority → status → age.
 - Columns: **ID · Priority · Status · Type · Summary · Age**. Header shows `AGENT (n)`; an agent with no open tasks shows `AGENT (0) — ✔️ no open tasks`.
@@ -71,8 +74,10 @@ A stamp file `${STATE_DIR}/digest-stamp` records the last-sent date to guard aga
 | `MATRIX_ACCESS_TOKEN` | Yes | — | Bot access token |
 | `MATRIX_ROOM_TASK_QUEUE` | Yes | — | Room ID for task queue commands (e.g. `!task-queue:helmforge.me`) |
 | `MATRIX_BOT_USER_ID` | No | `@forge-task-queue:helmforge.me` | Bot's Matrix user ID |
-| `TASK_QUEUE_MCP_URL` | No | `http://localhost:8485/mcp` | Unused at runtime (reads files directly) |
-| `TASK_QUEUE_DIR` | No | `~/.claude/task-queue` | Task YAML directory |
+| `TASK_QUEUE_TOKEN_FILE` | Yes | — | Path to a file holding the bot's task-queue-mcp client token (and nothing else). The bot refuses to start if it is unset, missing or empty. See [Client token](#client-token). |
+| `TASK_QUEUE_API` | No | `http://127.0.0.1:8485` | Base URL of task-queue-mcp's HTTP API. Must be `https://`, or `http://` to a loopback host: the token goes on every request. The bot refuses to start otherwise. |
+| `TASK_QUEUE_MCP_URL` | No | `http://localhost:8485/mcp` | Unused at runtime |
+| `TASK_QUEUE_DIR` | No | `~/.claude/task-queue` | Watched for changes only; the bot never reads the files |
 | `AUTHORIZED_MXIDS` | No | `@ted:helmforge.me` | Comma-separated MXIDs allowed to run mutating commands |
 | `STATE_DIR` | No | `~/.local/state/matrix-task-queue-bot` | Holds `boards.json` (agent→event_id) and `digest-stamp` |
 | `DIGEST_HOUR` | No | `5` | Local-time hour (0–23) for the daily morning brief |
@@ -80,6 +85,12 @@ A stamp file `${STATE_DIR}/digest-stamp` records the last-sent date to guard aga
 | `BOARD_AGENTS` | No | `developer,sysadmin,research,writer,security` | Ordered set of agents to always keep a (possibly empty) board for |
 | `MAX_BOARD_AGENTS` | No | `25` | Hard cap on total boards; extra agents beyond it are logged and dropped (floored to `BOARD_AGENTS` size) |
 | `ENV_FILE` | No | `~/.secrets/matrix-task-queue-bot.env` | Path to dotenv file |
+
+### Client token
+
+The bot authenticates to task-queue-mcp with its own client token, sent as `X-Task-Queue-Token` (never `Authorization`). The server holds only the token's `sha256:` digest, registered as client `matrix-bot` with `read,operator-write` scopes, and records the bot's writes with `channel: matrix-bot`. See task-queue-mcp's README for minting a token and its digest.
+
+The environment carries the file's **path**, never the token. Keep the file `0600`. Sessions the bot launches (`!task start` / `!task run`, widget start) get the bot's environment **minus its credentials**: `MATRIX_ACCESS_TOKEN`, `TASK_QUEUE_API_SECRET`, `TASK_QUEUE_TOKEN_FILE`, and any `TASK_QUEUE_TOKEN_*` / `TASK_QUEUE_CLIENT_*` are removed (`session.child_env`). Before v0.2.0 every launched session inherited all of them. This is containment only: a launched session runs as the same OS user and can still read the token file. Before v0.2.0 the bot sent a shared secret, `TASK_QUEUE_API_SECRET`, as `X-Task-Queue-Secret`; that variable is no longer read.
 
 ## Installation
 
@@ -97,9 +108,8 @@ pip install -e .
 | Package | Purpose |
 |---------|---------|
 | `matrix-nio[e2e]` | Matrix client |
-| `httpx` | HTTP client (trigger-proxy support) |
-| `watchdog` | File system watcher |
-| `pyyaml` | Task YAML parsing |
+| `httpx` | HTTP client: task-queue-mcp API and trigger-proxy |
+| `watchdog` | File system watcher (change trigger for board refreshes) |
 | `python-dotenv` | Env file loading |
 
 ## Deployment (PM2)

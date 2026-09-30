@@ -16,6 +16,32 @@ HOME = os.path.expanduser("~")
 LAUNCH_LOG_DIR = os.path.join(HOME, ".claude", "comms", "artifacts", "task-launches")
 _VALID_ID = re.compile(r"^[a-zA-Z0-9_-]+$")
 
+# The bot's own credentials. They are in this process's environment because load_dotenv
+# puts the bot's env file there, and a child spawned with no `env=` inherits all of it:
+# until v0.2.0 every Claude session launched from Matrix held the bot's Matrix access
+# token and the task-queue shared secret, which is the ambient-credential problem
+# vikunja#396 exists to end. A launched agent authenticates with its own credentials and
+# needs none of these.
+#
+# A deny-list of the bot's credential names and prefixes, not an allowlist. An allowlist
+# would have to track what `claude` itself needs from the environment, and getting that
+# wrong breaks every launch; the set of credentials this bot holds is small and known.
+_CHILD_ENV_DENY = frozenset(
+    {"MATRIX_ACCESS_TOKEN", "TASK_QUEUE_API_SECRET", "TASK_QUEUE_TOKEN_FILE"}
+)
+_CHILD_ENV_DENY_PREFIXES = ("TASK_QUEUE_TOKEN_", "TASK_QUEUE_CLIENT_")
+
+
+def child_env(env: dict[str, str] | None = None) -> dict[str, str]:
+    """This process's environment with the bot's credentials removed, for a launched session."""
+    env = dict(os.environ if env is None else env)
+    return {
+        k: v
+        for k, v in env.items()
+        if k not in _CHILD_ENV_DENY and not k.startswith(_CHILD_ENV_DENY_PREFIXES)
+    }
+
+
 AGENT_PROJECTS: dict[str, str] = {
     "sysadmin": os.path.join(HOME, ".claude", "projects", "sysadmin"),
     "developer": os.path.join(HOME, ".claude", "projects", "developer"),
@@ -67,6 +93,7 @@ def launch_headless(task_id: str, target_agent: str, mode: str) -> dict[str, str
         proc = subprocess.Popen(
             [claude_bin, "-p", prompt, "--permission-mode", permission_mode],
             cwd=project_dir,
+            env=child_env(),
             stdout=log_fh,
             stderr=subprocess.STDOUT,
         )
