@@ -223,3 +223,58 @@ def test_a_refused_write_returns_empty():
 
     client, _ = _client(handler)
     assert asyncio.run(client.update_task(tid, "cancelled", "operator")) == {}
+
+
+# ── transport and input hardening (CodeRabbit on #8) ────────────────────
+
+from src.task_client import InsecureApiBaseError, check_api_base  # noqa: E402
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "http://127.0.0.1:8485",
+        "http://127.0.0.1:8485/",
+        "http://localhost:8485",
+        "http://[::1]:8485",
+        "https://tasks.example.com",
+        "https://10.0.0.5:8485",
+    ],
+)
+def test_loopback_http_and_any_https_are_accepted(base):
+    assert check_api_base(base) == base.rstrip("/")
+
+
+@pytest.mark.parametrize(
+    "base",
+    [
+        "http://10.0.0.5:8485",
+        "http://tasks.example.com",
+        "http://127.0.0.1.evil.example:8485",
+        "ftp://127.0.0.1",
+        "127.0.0.1:8485",
+        "",
+    ],
+)
+def test_cleartext_to_another_host_is_refused(base):
+    with pytest.raises(InsecureApiBaseError):
+        check_api_base(base)
+
+
+def test_the_client_refuses_an_insecure_base_at_construction():
+    with pytest.raises(InsecureApiBaseError):
+        TaskQueueClient("http://10.0.0.5:8485", TOKEN)
+
+
+def test_a_non_utf8_token_file_is_a_token_file_error(tmp_path):
+    f = tmp_path / "token"
+    f.write_bytes(b"\xff\xfe\x00bad")
+    with pytest.raises(TokenFileError, match="not valid UTF-8"):
+        load_token(f)
+
+
+@pytest.mark.parametrize("body", [{"text": "<html>"}, {"json": [1]}])
+def test_a_malformed_detail_body_raises(body):
+    client, _ = _client(lambda r: httpx.Response(200, **body))
+    with pytest.raises(TaskQueueError, match="malformed"):
+        asyncio.run(client.get_task(str(uuid.uuid4())))

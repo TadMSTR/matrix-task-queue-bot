@@ -29,7 +29,14 @@ from watchdog.observers import Observer
 
 from .commands import handle_command
 from .formatter import board_signature, board_tasks, format_agent_board, format_digest
-from .task_client import LIST_PAGE_MAX, TaskQueueClient, TokenFileError, load_token
+from .task_client import (
+    LIST_PAGE_MAX,
+    InsecureApiBaseError,
+    TaskQueueClient,
+    TokenFileError,
+    check_api_base,
+    load_token,
+)
 from .widget_events import (
     EVENT_TASK_APPROVE,
     EVENT_TASK_DETAIL,
@@ -66,6 +73,11 @@ TASK_QUEUE_API = os.environ.get("TASK_QUEUE_API", "http://127.0.0.1:8485")
 TASK_QUEUE_TOKEN_FILE = os.environ.get("TASK_QUEUE_TOKEN_FILE", "")
 if not TASK_QUEUE_TOKEN_FILE:
     print("ERROR: Missing required env var: TASK_QUEUE_TOKEN_FILE", file=sys.stderr)
+    sys.exit(1)
+try:
+    TASK_QUEUE_API = check_api_base(TASK_QUEUE_API)
+except InsecureApiBaseError as exc:
+    print(f"ERROR: {exc}", file=sys.stderr)
     sys.exit(1)
 try:
     TASK_QUEUE_TOKEN = load_token(TASK_QUEUE_TOKEN_FILE)

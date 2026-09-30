@@ -46,7 +46,7 @@ Responses are sent as custom room events (`com.helmforge.task.response` / `com.h
 
 ## Live status boards
 
-The file watcher (watchdog, non-recursive) monitors `~/.claude/task-queue/` for any change — creation, modification, deletion, or move (archival). It is **a change trigger only**: an event causes an API read, never a file parse. All events are collapsed by a single coalesce timer (`BOARD_COALESCE_SEC`, default 2s) into one refresh pass.
+The file watcher (watchdog, non-recursive) monitors `TASK_QUEUE_DIR` (default `~/.claude/task-queue/`) for any change — creation, modification, deletion, or move (archival). It is **a change trigger only**: an event causes an API read, never a file parse. All events are collapsed by a single coalesce timer (`BOARD_COALESCE_SEC`, default 2s) into one refresh pass.
 
 Each refresh rebuilds one board **per agent** in `BOARD_AGENTS` (plus any other agent seen in the queue, appended lazily) from one `GET /tasks?limit=1000`:
 
@@ -75,7 +75,7 @@ A stamp file `${STATE_DIR}/digest-stamp` records the last-sent date to guard aga
 | `MATRIX_ROOM_TASK_QUEUE` | Yes | — | Room ID for task queue commands (e.g. `!task-queue:helmforge.me`) |
 | `MATRIX_BOT_USER_ID` | No | `@forge-task-queue:helmforge.me` | Bot's Matrix user ID |
 | `TASK_QUEUE_TOKEN_FILE` | Yes | — | Path to a file holding the bot's task-queue-mcp client token (and nothing else). The bot refuses to start if it is unset, missing or empty. See [Client token](#client-token). |
-| `TASK_QUEUE_API` | No | `http://127.0.0.1:8485` | Base URL of task-queue-mcp's HTTP API |
+| `TASK_QUEUE_API` | No | `http://127.0.0.1:8485` | Base URL of task-queue-mcp's HTTP API. Must be `https://`, or `http://` to a loopback host: the token goes on every request. The bot refuses to start otherwise. |
 | `TASK_QUEUE_MCP_URL` | No | `http://localhost:8485/mcp` | Unused at runtime |
 | `TASK_QUEUE_DIR` | No | `~/.claude/task-queue` | Watched for changes only; the bot never reads the files |
 | `AUTHORIZED_MXIDS` | No | `@ted:helmforge.me` | Comma-separated MXIDs allowed to run mutating commands |

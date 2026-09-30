@@ -17,12 +17,14 @@ launches (see session.child_env).
 
 from __future__ import annotations
 
+import ipaddress
 import logging
 import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -49,6 +51,37 @@ class TaskQueueError(RuntimeError):
     """A read the API refused or could not serve. Raised, never returned as an empty list."""
 
 
+class InsecureApiBaseError(ValueError):
+    """TASK_QUEUE_API would carry the token in cleartext off this host."""
+
+
+def check_api_base(api_base: str) -> str:
+    """
+    Return ``api_base`` without a trailing slash, or raise InsecureApiBaseError.
+
+    The bot's token carries ``read,operator-write`` and goes on every request, reads
+    included. Over plain HTTP to another host, anything on the path could take it and act
+    as the operator. So ``http://`` is accepted only for a loopback host (the deployed
+    default, ``http://127.0.0.1:8485``), and anything else must be ``https://``.
+    """
+    parts = urlsplit(api_base)
+    host = (parts.hostname or "").lower()
+    if parts.scheme == "https" and host:
+        return api_base.rstrip("/")
+    if parts.scheme == "http" and host:
+        if host == "localhost":
+            return api_base.rstrip("/")
+        try:
+            if ipaddress.ip_address(host).is_loopback:
+                return api_base.rstrip("/")
+        except ValueError:
+            pass
+    raise InsecureApiBaseError(
+        f"TASK_QUEUE_API={api_base!r}: the client token may only be sent over https://, "
+        "or over http:// to a loopback host"
+    )
+
+
 def load_token(path: str | Path) -> str:
     """
     Read the client token from ``path``. Raises TokenFileError when the file is missing,
@@ -59,9 +92,12 @@ def load_token(path: str | Path) -> str:
     """
     p = Path(path).expanduser()
     try:
-        text = p.read_text()
+        text = p.read_text(encoding="utf-8")
     except FileNotFoundError:
         raise TokenFileError(f"task-queue token file {p} is missing") from None
+    except UnicodeError:
+        # Named, not echoed: the bytes may still be most of a live token.
+        raise TokenFileError(f"task-queue token file {p} is not valid UTF-8") from None
     except OSError as exc:
         raise TokenFileError(
             f"task-queue token file {p} is unreadable ({exc.__class__.__name__})"
@@ -87,7 +123,8 @@ class TaskQueueClient:
         token: str,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
-        self._api_base = api_base.rstrip("/")
+        # Checked here as well as at startup, so no construction path can skip it.
+        self._api_base = check_api_base(api_base)
         self._token = token
         # Injectable for tests; production uses httpx's default transport.
         self._transport = transport
@@ -178,7 +215,13 @@ class TaskQueueClient:
                 return {}
             if resp.status_code != 200:
                 raise TaskQueueError(f"GET /tasks/{{id}} -> {resp.status_code}: {resp.text[:200]}")
-            task = resp.json().get("task")
+            try:
+                data = resp.json()
+            except ValueError:
+                raise TaskQueueError("GET /tasks/{id} returned a malformed body") from None
+            if not isinstance(data, dict):
+                raise TaskQueueError("GET /tasks/{id} returned a malformed body")
+            task = data.get("task")
             return task if isinstance(task, dict) else {}
 
         if len(task_id) < MIN_PREFIX:
